@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Security
+
+- Fatal-error logging now emits a sanitized error (`name`, `message`, `stack` only) with `KOMODO_API_KEY`, `KOMODO_API_SECRET` and `MCP_AUTH_TOKEN` values redacted, instead of serializing the raw thrown object.
+- Startup configuration errors no longer echo raw environment values or `*_FILE` paths in their messages; they name the offending variable and the expected shape (`js/clear-text-logging`).
+- Pinned the third-party actions in the release workflow (`docker/setup-buildx-action`, `docker/login-action`, `docker/metadata-action`, `docker/build-push-action`, `softprops/action-gh-release`) to full commit SHAs, keeping the version tag in a trailing comment (`actions/unpinned-tag`).
+
 ### Fixed
 
 - Updated the five Docker inventory tool operations to the names used by `komodo_client` 2.3 and later, restoring TypeScript compatibility and correct Komodo read routes.
