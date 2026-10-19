@@ -69,7 +69,10 @@ function readEnvOrFile(envName: string): string | undefined {
     try {
       return readFileSync(filePath, "utf8").trim();
     } catch (error) {
-      throw new Error(`Failed to read ${envName}_FILE (${filePath}): ${(error as Error).message}`);
+      const code = (error as NodeJS.ErrnoException).code;
+      throw new Error(
+        `Failed to read ${envName}_FILE: check that the file exists and is readable${code ? ` (${code})` : ""}`
+      );
     }
   }
   return undefined;
@@ -80,10 +83,10 @@ function normalizeAddress(raw: string): string {
   try {
     parsed = new URL(raw);
   } catch {
-    throw new Error(`KOMODO_ADDRESS is not a valid URL: ${raw}`);
+    throw new Error("KOMODO_ADDRESS is not a valid URL: expected http:// or https://");
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error(`KOMODO_ADDRESS must be http(s); got ${parsed.protocol}`);
+    throw new Error("KOMODO_ADDRESS must be http:// or https://");
   }
   return parsed.origin;
 }
@@ -91,7 +94,7 @@ function normalizeAddress(raw: string): string {
 function positiveInteger(value: number | undefined, fallback: number, name: string): number {
   const candidate = value ?? fallback;
   if (!Number.isInteger(candidate) || candidate < 1) {
-    throw new Error(`Invalid ${name}: ${candidate}`);
+    throw new Error(`Invalid ${name}: expected a positive integer`);
   }
   return candidate;
 }
@@ -101,7 +104,7 @@ function readNumberEnv(name: string): number | undefined {
   if (!raw) return undefined;
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 1) {
-    throw new Error(`Invalid ${name}: ${raw}`);
+    throw new Error(`Invalid ${name}: expected a positive integer`);
   }
   return parsed;
 }
@@ -128,6 +131,49 @@ function errorDetail(error: unknown): string {
     if (rejection.result !== undefined) return safeString(rejection.result);
   }
   return safeString(error);
+}
+
+// ---------- log sanitization ----------
+
+/** Env names whose values must never reach a log sink in clear text. */
+const LOG_SECRET_ENV_NAMES = ["KOMODO_API_KEY", "KOMODO_API_SECRET", "MCP_AUTH_TOKEN"] as const;
+
+/**
+ * Build a logger-safe representation of an arbitrary thrown value: name,
+ * message and stack only — no enumerable custom properties and no `cause`
+ * chain — with every known secret value replaced by "[redacted]". Log sinks
+ * for top-level failures (e.g. the fatal-error handler) must route errors
+ * through this helper so environment-sourced secrets cannot reach stderr in
+ * clear text.
+ */
+export function sanitizeErrorForLog(
+  error: unknown,
+  extraSecrets: readonly (string | undefined)[] = []
+): { name: string; message: string; stack?: string } {
+  const secrets = new Set<string>();
+  for (const name of LOG_SECRET_ENV_NAMES) {
+    const value = process.env[name];
+    if (value && value.length >= 4) secrets.add(value);
+  }
+  for (const value of extraSecrets) {
+    if (value && value.length >= 4) secrets.add(value);
+  }
+  const redact = (text: string): string => {
+    let output = text;
+    for (const secret of secrets) {
+      output = output.split(secret).join("[redacted]");
+    }
+    return output;
+  };
+  if (error instanceof Error) {
+    const sanitized: { name: string; message: string; stack?: string } = {
+      name: error.name,
+      message: redact(error.message),
+    };
+    if (error.stack !== undefined) sanitized.stack = redact(error.stack);
+    return sanitized;
+  }
+  return { name: typeof error, message: redact(safeString(error)) };
 }
 
 function deadlineInterceptor(timeoutMs: number): Dispatcher.DispatcherComposeInterceptor {

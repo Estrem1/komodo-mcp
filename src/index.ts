@@ -36,7 +36,7 @@ import helmet from "helmet";
 import pino from "pino";
 import { pinoHttp } from "pino-http";
 
-import { KomodoClient } from "./komodo-client.js";
+import { KomodoClient, sanitizeErrorForLog } from "./komodo-client.js";
 import { createServer } from "./server.js";
 
 // ---------- env parsing ----------
@@ -51,8 +51,10 @@ function readEnvOrFile(name: string): string | undefined {
     try {
       return readFileSync(filePath, "utf8").trim();
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      throw new Error(`Failed to read ${name}_FILE (${filePath}): ${message}`);
+      const code = err instanceof Error ? (err as NodeJS.ErrnoException).code : undefined;
+      throw new Error(
+        `Failed to read ${name}_FILE: check that the file exists and is readable${code ? ` (${code})` : ""}`
+      );
     }
   }
   return undefined;
@@ -185,7 +187,9 @@ export function buildApp(options: BuildAppOptions = {}): AppHandle {
   const sessionIdleTimeoutRaw = env["MCP_SESSION_IDLE_TIMEOUT_MS"] ?? "1800000";
   const sessionIdleTimeoutMs = Number(sessionIdleTimeoutRaw);
   if (!Number.isInteger(sessionIdleTimeoutMs) || sessionIdleTimeoutMs < 1) {
-    throw new Error(`Invalid MCP_SESSION_IDLE_TIMEOUT_MS: ${sessionIdleTimeoutRaw}`);
+    throw new Error(
+      "Invalid MCP_SESSION_IDLE_TIMEOUT_MS: expected a positive integer (milliseconds)"
+    );
   }
 
   const app = express();
@@ -517,7 +521,11 @@ const invokedDirectly =
 
 if (invokedDirectly) {
   main().catch((error) => {
-    logger.error({ error }, "fatal error");
+    // Log a sanitized representation — never the raw error object — so
+    // environment-sourced secrets cannot reach stderr in clear text
+    // (js/clear-text-logging). AUTH_TOKEN is the resolved MCP_AUTH_TOKEN
+    // value (which may have come from MCP_AUTH_TOKEN_FILE).
+    logger.error({ error: sanitizeErrorForLog(error, [AUTH_TOKEN]) }, "fatal error");
     process.exit(1);
   });
 }
