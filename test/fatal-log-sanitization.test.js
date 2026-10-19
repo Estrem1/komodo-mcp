@@ -141,6 +141,53 @@ test("fatal error log is sanitized: no env values or secrets, actionable message
   }
 });
 
+test("sanitizeErrorForLog handles non-serializable top-level rejections", async () => {
+  const { sanitizeErrorForLog } = await import("../dist/komodo-client.js");
+  const original = { ...process.env };
+  try {
+    // A configured credential makes the redaction pass run: a non-string from
+    // JSON.stringify would then hit `.split` and throw, killing the fatal
+    // handler before it logs the rejection or reaches process.exit(1).
+    process.env.KOMODO_API_KEY = "zzzz-configured-key";
+    for (const value of [undefined, Symbol("boom"), () => {}]) {
+      const sanitized = sanitizeErrorForLog(value);
+      assert.equal(
+        typeof sanitized.message,
+        "string",
+        `message must be a string for ${typeof value}`
+      );
+      assert.ok(sanitized.message.length > 0, `message must not be empty for ${typeof value}`);
+    }
+    assert.equal(sanitizeErrorForLog(undefined).name, "undefined");
+    assert.equal(sanitizeErrorForLog(null).name, "object");
+  } finally {
+    if (!("KOMODO_API_KEY" in original)) delete process.env.KOMODO_API_KEY;
+    else process.env.KOMODO_API_KEY = original.KOMODO_API_KEY;
+  }
+});
+
+test("sanitizeErrorForLog redacts the longest overlapping secret first", async () => {
+  const { sanitizeErrorForLog } = await import("../dist/komodo-client.js");
+  const original = { ...process.env };
+  try {
+    // Short credential is a prefix of the long one: replacing it first would
+    // emit "[redacted]ef" and leave a fragment of the long credential in the log.
+    process.env.KOMODO_API_KEY = "abcd";
+    process.env.KOMODO_API_SECRET = "abcdef";
+    const sanitized = sanitizeErrorForLog(new Error("credential=abcdef"));
+    assert.equal(sanitized.message, "credential=[redacted]");
+    assert.ok(
+      !sanitized.message.includes("ef"),
+      "no fragment of the longer credential may survive"
+    );
+  } finally {
+    for (const key of ["KOMODO_API_KEY", "KOMODO_API_SECRET"]) {
+      if (!(key in original)) delete process.env[key];
+      else process.env[key] = original[key];
+    }
+  }
+});
+
 test("sanitizeErrorForLog redacts secrets and drops non-core fields", async () => {
   const { sanitizeErrorForLog } = await import("../dist/komodo-client.js");
   const original = { ...process.env };

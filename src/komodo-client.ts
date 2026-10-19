@@ -112,7 +112,10 @@ function readNumberEnv(name: string): number | undefined {
 function safeString(value: unknown): string {
   if (typeof value === "string") return value;
   try {
-    return JSON.stringify(value);
+    // JSON.stringify returns undefined (not a string) for undefined, symbols
+    // and functions, so the result cannot be typed as a string unchecked.
+    const serialized: unknown = JSON.stringify(value);
+    return typeof serialized === "string" ? serialized : String(value);
   } catch {
     return String(value);
   }
@@ -158,9 +161,13 @@ export function sanitizeErrorForLog(
   for (const value of extraSecrets) {
     if (value && value.length >= 4) secrets.add(value);
   }
+  // Longest first: when one credential is a prefix of another, replacing the
+  // shorter one first would emit "[redacted]ef" and leave the tail of the
+  // longer credential in the log.
+  const orderedSecrets = [...secrets].sort((a, b) => b.length - a.length);
   const redact = (text: string): string => {
     let output = text;
-    for (const secret of secrets) {
+    for (const secret of orderedSecrets) {
       output = output.split(secret).join("[redacted]");
     }
     return output;
