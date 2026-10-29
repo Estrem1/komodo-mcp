@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Security
 
+- Pinned the transitive `body-parser` to 2.4.0 (CVE-2026-111181, GHSA-27r3-jxmh-p828), closing a denial of service via trailing bytes after a compressed request body.
+- Pinned the transitive `fast-uri` to 3.1.9 (CVE-2026-110306, CVE-2026-110095, CVE-2026-110180, CVE-2026-110725), closing URI scheme spoofing, improper path equivalence, host confusion and scheme injection.
+- Pinned the transitive `@hono/node-server` to 2.1.5 (CVE-2026-111757, GHSA-5r4p-p66f-jhc7), closing the `serveStatic` double-decoding path that bypassed middleware.
 - Fatal-error logging now emits a sanitized error (`name`, `message`, `stack` only) with `KOMODO_API_KEY`, `KOMODO_API_SECRET` and `MCP_AUTH_TOKEN` values redacted, instead of serializing the raw thrown object.
 - Startup configuration errors no longer echo raw environment values or `*_FILE` paths in their messages; they name the offending variable and the expected shape (`js/clear-text-logging`).
 - Pinned the third-party actions in the release workflow (`docker/setup-buildx-action`, `docker/login-action`, `docker/metadata-action`, `docker/build-push-action`, `softprops/action-gh-release`) to full commit SHAs, keeping the version tag in a trailing comment (`actions/unpinned-tag`).
